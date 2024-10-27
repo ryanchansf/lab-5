@@ -1,9 +1,18 @@
 ---
 title: "Lab 5: Murder in SQL City"
 author: "Ryan Chan"
-format: html
+format: 
+  html:  
+    embed-resources: true
+    code-tools: true
+    toc: true
+    theme: lux
+code-fold: true
 editor: source
-embed-resources: true
+execute: 
+  echo: true
+  warning: false
+  error: true
 ---
 
 For this lab, you will be joining and filtering related datasets to solve a murder mystery!
@@ -57,13 +66,142 @@ Detective Wickham reaches out to you...
 ```{r}
 #| label: inspecting-crime-scene-report
 
-```
+# Step 1: scope the crime scene data to the murder details
+# Result: crime scene report detailing clues of the murder
 
+crime_scene_report |>
+  filter(city == "SQL City",
+         ymd(date) == ymd(20180115),
+         type == "murder") |>
+  pull(description)
+
+```
 
 **Follow the evidence to the person responsible for the murder, building a report as you go.**
 Hint: Make sure you check for interviews with any suspects!
 
+```{r}
+#| label: finding-witnesses
+
+# Step 2: find the two witnesses detailed in the crime scene report and examine their interview transcript for clues
+# Result: the witnesses and their interview transcript
+
+# get both witnesses and their interview transcripts
+person |>
+  filter(
+    (address_street_name == "Northwestern Dr" & 
+       address_number == max(address_number[address_street_name == "Northwestern Dr"])) |
+    (address_street_name == "Franklin Ave" & 
+       str_detect(name, "^Annabel"))) |>
+  left_join(interview,
+            join_by(id == person_id)) |>
+  select(id,
+         name,
+         transcript)
+```
+Based on the crime scene report from the security footage in the area, Morty Schapiro and Annabel Miller witnessed the murder. The following clues provide promising leads on the suspect:
+
+- The suspect is a male
+- The suspect is a gold member at a gym with membership number beginning with `48Z`
+- The suspect was seen at the gym sometime on January 9th, 2018
+- The suspect's license plate number contains `H42W`
+
+```{r}
+#| label: finding-suspect
+
+# Step 3: narrow down suspect based on interview clues
+
+# the dataframes that are needed to get the necessary information from the clues are as follows:
+# - get_fit_now_member
+# - get_fit_now_check_in
+# - drivers_license
+# these will be joined together with the person dataframe, and will undergo filtering from the clues
+
+person |>
+  inner_join(get_fit_now_member |>
+               rename(membership_id = id),
+             join_by(id == person_id)) |>
+  left_join(get_fit_now_check_in,
+            join_by(membership_id == membership_id)) |>
+  left_join(drivers_license,
+            join_by(license_id == id)) |>
+  filter(ymd(check_in_date) == ymd(20180109),
+         gender == "male",
+         membership_status == "gold",
+         str_detect(membership_id, "^48Z"),
+         str_detect(plate_number, "H42W"))
+```
+Based on the witness clues, Jeremy Bowers seems to be a notable suspect. To verify that he committed the murder, let's check his interview notes.
+
+```{r}
+#| label: suspect-interview
+
+# Step 4: interview the suspect for verification of the murder
+
+person |>
+  inner_join(interview,
+             join_by(id == person_id)) |>
+  filter(id == 67318) |>
+  pull(transcript)
+```
+
+Aha! As it turns out, the original suspect was paid off to commit the crime. Let's get to the bottom of it using the new clues from the suspect interview. We now know that:
+
+- The new suspect is female
+- The new suspect's height is between 65" and 67"
+- The new suspect is wealthy
+- The new suspect has red hair
+- The new suspect drives a Tesla Model S
+- The new suspect attended the SQL Symphony Concert 3 times in December 2017
+
+Only some of this information will prove to be useful in finding the new suspect...
+
+```{r}
+#| label: finding-hiring-suspect
+
+# Step 5: find the person who hired Jeremy Bowers using clues from his interview transcript
+
+# the dataframes that are necessary to get the necessary information from the clues are as follows:
+# - drivers_license
+# - facebook_event_checkin
+
+person |>
+  inner_join(drivers_license,
+             join_by(license_id == id)) |>
+  inner_join(facebook_event_checkin,
+             join_by(id == person_id)) |>
+  filter(gender == "female",
+         hair_color == "red",
+         height %in% c(65:67),
+         car_make == "Tesla",
+         car_model == "Model S",
+         event_name == "SQL Symphony Concert",
+         month(ymd(date)) == 12,
+         year(ymd(date)) == 2017) |>
+  group_by(id) |>
+  summarize(concert_attendance = n()) |>
+  filter(concert_attendance == 3)
+
+```
+
+Only one person fits all these conditions. Now that we have a final suspect, let's bring them in for a final interview.
+
+```{r} 
+#| label: interview-final-suspect
+
+# Step 6: interview the final suspect for verification of hiring
+
+person |>
+  left_join(interview,
+            join_by(id == person_id)) |>
+  filter(id == 99716) |>
+  select(name,
+         transcript)
+```
+It looks like the suspect is exercising their right to remain silent...
 
 ## And the final suspect is...
 
 *Put the name of the person responsible for the murder here:*
+
+Miranda Priestly
