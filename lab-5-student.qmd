@@ -63,10 +63,11 @@ Detective Wickham reaches out to you...
 
 > A crime has taken place and I need your help! There was a murder in SQL City sometime on January 15, 2018. Could you retrieve the crime scene report from the police department’s database and follow the clues to find the person responsible for the murder?!
 
+#### Step 1: scope the crime scene date to the murder details
+
 ```{r}
 #| label: inspecting-crime-scene-report
 
-# Step 1: scope the crime scene data to the murder details
 # Result: crime scene report detailing clues of the murder
 
 crime_scene_report |>
@@ -80,17 +81,18 @@ crime_scene_report |>
 **Follow the evidence to the person responsible for the murder, building a report as you go.**
 Hint: Make sure you check for interviews with any suspects!
 
+##### Step 2: find the two witnesses detailed in the crime scene report and examine their interview transcript for clues
+
 ```{r}
 #| label: finding-witnesses
 
-# Step 2: find the two witnesses detailed in the crime scene report and examine their interview transcript for clues
 # Result: the witnesses and their interview transcript
 
 # get both witnesses and their interview transcripts
 person |>
   filter(
     (address_street_name == "Northwestern Dr" & 
-       address_number == max(address_number[address_street_name == "Northwestern Dr"])) |
+       address_number == max(address_number)) |
     (address_street_name == "Franklin Ave" & 
        str_detect(name, "^Annabel"))) |>
   left_join(interview,
@@ -106,10 +108,10 @@ Based on the crime scene report from the security footage in the area, Morty Sch
 - The suspect was seen at the gym sometime on January 9th, 2018
 - The suspect's license plate number contains `H42W`
 
+#### Step 3: narrow down suspect based on interview clues
+
 ```{r}
 #| label: finding-suspect
-
-# Step 3: narrow down suspect based on interview clues
 
 # the dataframes that are needed to get the necessary information from the clues are as follows:
 # - get_fit_now_member
@@ -117,9 +119,14 @@ Based on the crime scene report from the security footage in the area, Morty Sch
 # - drivers_license
 # these will be joined together with the person dataframe, and will undergo filtering from the clues
 
-person |>
-  inner_join(get_fit_now_member |>
-               rename(membership_id = id),
+
+# REVISION: separating column renaming from join to eliminate nested functions
+# REVISION: saving the results into a `suspect` variable for join in Step 4
+get_fit_now_member <- get_fit_now_member |>
+  rename(membership_id = id)
+
+suspect <- person |>
+  inner_join(get_fit_now_member,
              join_by(id == person_id)) |>
   left_join(get_fit_now_check_in,
             join_by(membership_id == membership_id)) |>
@@ -130,18 +137,21 @@ person |>
          membership_status == "gold",
          str_detect(membership_id, "^48Z"),
          str_detect(plate_number, "H42W"))
+
+suspect
 ```
 Based on the witness clues, Jeremy Bowers seems to be a notable suspect. To verify that he committed the murder, let's check his interview notes.
+
+#### Step 4: interview the suspect for verification of the murder
 
 ```{r}
 #| label: suspect-interview
 
-# Step 4: interview the suspect for verification of the murder
+# REVISION: joining with the dataframe scoped down to just the suspect id and removing hardcoded id filtering
 
-person |>
+suspect |>
   inner_join(interview,
              join_by(id == person_id)) |>
-  filter(id == 67318) |>
   pull(transcript)
 ```
 
@@ -156,16 +166,18 @@ Aha! As it turns out, the original suspect was paid off to commit the crime. Let
 
 Only some of this information will prove to be useful in finding the new suspect...
 
+#### Step 5: find the person who hired Jeremy Bowers using clues from his interview transcript
+
 ```{r}
 #| label: finding-hiring-suspect
-
-# Step 5: find the person who hired Jeremy Bowers using clues from his interview transcript
 
 # the dataframes that are necessary to get the necessary information from the clues are as follows:
 # - drivers_license
 # - facebook_event_checkin
 
-person |>
+# REVISION: saving the results into a `hiring_suspect` variable for join in Step 6
+
+hiring_suspect <- person |>
   inner_join(drivers_license,
              join_by(license_id == id)) |>
   inner_join(facebook_event_checkin,
@@ -178,23 +190,27 @@ person |>
          event_name == "SQL Symphony Concert",
          month(ymd(date)) == 12,
          year(ymd(date)) == 2017) |>
-  group_by(id) |>
-  summarize(concert_attendance = n()) |>
+  group_by(id, name) |>
+  summarize(concert_attendance = n(),
+            .groups = "drop") |>
   filter(concert_attendance == 3)
+
+hiring_suspect
 
 ```
 
 Only one person fits all these conditions. Now that we have a final suspect, let's bring them in for a final interview.
 
+#### Step 6: interview the final suspect for verification of hiring
+
 ```{r} 
 #| label: interview-final-suspect
 
-# Step 6: interview the final suspect for verification of hiring
+# REVISION: joining with the dataframe scoped down to just the suspect id and removing hardcoded id filtering
 
-person |>
+hiring_suspect |>
   left_join(interview,
             join_by(id == person_id)) |>
-  filter(id == 99716) |>
   select(name,
          transcript)
 ```
